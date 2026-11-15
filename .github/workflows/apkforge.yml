@@ -1,0 +1,46 @@
+name: APKForge
+on:
+  workflow_dispatch:
+    inputs:
+      java:
+        description: JDK version
+        default: '17'
+      release:
+        description: Publish APK in GitHub Releases
+        default: 'false'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java }}
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+      - uses: gradle/actions/setup-gradle@v4
+        if: ${{ hashFiles('gradlew') == '' }}
+        with:
+          gradle-version: '8.7'
+      - name: Build debug APK
+        run: |
+          if [ -f ./gradlew ]; then chmod +x ./gradlew; ./gradlew assembleDebug --stacktrace; else gradle assembleDebug --stacktrace; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: '**/build/outputs/apk/debug/*.apk'
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        if: ${{ inputs.release == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mapfile -t FILES < <(find . -path '*/build/outputs/apk/debug/*.apk')
+          gh release create "apkforge-${{ github.run_number }}" "${FILES[@]}" \
+            --title "APK debug (build #${{ github.run_number }})" \
+            --notes "Compilato con APKForge" \
+            --target "${{ github.sha }}"
